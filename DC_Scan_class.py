@@ -19,13 +19,14 @@ from matplotlib import pyplot as plt
 
 # Constrain RF data in the range between 0-6 V
 class DC_Scan:
-    def __init__(self,ser,Rigol_address="USB0::0x1AB1::0x0E11::DP8B242401816::INSTR",Hrange=None,Arange=None,Achannel=None,Hchannel=None, sampling=None, Astep=None, Hstep=None, intv=None, mode=None):
-        self.RF = Rigol_DCPort(Rigol_address)
-        self.DC = CAENDesktopHighVoltagePowerSupply(ser)
+    def __init__(self,ser,Rigol_address="USB0::0x1AB1::0x0E11::DP8B242401816::INSTR",Hrange=None,Arange=None,Achannel=None,Hchannel=None, Hchannel1=None, sampling=None, Astep=None, Hstep=None, intv=None, mode=None):
+        #self.RF = Rigol_DCPort(Rigol_address)
+        #self.DC = CAENDesktopHighVoltagePowerSupply(ser)
         self.Hrange=Hrange
         self.Arange=Arange
         self.Achannel=Achannel
         self.Hchannel=Hchannel
+        self.Hchannel1= Hchannel1
         self.sampling=sampling
         self.Astep=Astep
         self.Hstep=Hstep
@@ -33,7 +34,6 @@ class DC_Scan:
         self.working_message = None
         self.error_message = None
         self.error = False
-        self.complete = False
         self.mode=mode
         
     def RF_validity(self):
@@ -61,16 +61,36 @@ class DC_Scan:
         return True
     
     def sampling_validity(self):
-        curr_q = np.linspace(Hrange[0], Hrange[1], sampling)
-        if np.abs(curr_q[1] - curr_q[0]) > 40:
-            self.sampling = int(np.ceil(np.abs(Hrange[1] - Hrange[0]) / 40))
-    
+        if self.Hrange[0] != self.Hrange[1] and self.Arange[0] != self.Arange[1]:
+            self.curr_q = np.linspace(self.Hrange[0], self.Hrange[1], self.sampling)
+            if np.abs(self.curr_q[1] - self.curr_q[0]) > 40:
+                self.sampling = int(np.ceil(np.abs(self.Hrange[1] - self.Hrange[0]) / 40))
+            self.curr_q = np.linspace(self.Hrange[0], self.Hrange[1], self.sampling)
+            self.curr_a = np.linspace(self.Arange[0], self.Arange[1], self.sampling)
+        elif self.Hrange[0] == self.Hrange[1] and self.Arange[0] != self.Arange[1]:
+            self.curr_q = self.Hrange[0] * np.ones(self.sampling)
+            self.curr_a = np.linspace(self.Arange[0], self.Arange[1], self.sampling)
+        elif self.Arange[0] == self.Arange[1] and self.Hrange[0] != self.Hrange[1]:
+            self.curr_q = np.linspace(self.Hrange[0], self.Hrange[1], self.sampling)
+            if np.abs(self.curr_q[1] - self.curr_q[0]) > 40:
+                self.sampling = int(np.ceil(np.abs(self.Hrange[1] - self.Hrange[0]) / 40))
+            self.curr_q = np.linspace(self.Hrange[0], self.Hrange[1], self.sampling)
+            self.curr_a = self.Arange[0] * np.ones(self.sampling)
+        else:
+            self.curr_q = self.Hrange[0] * np.ones(self.sampling)
+            self.curr_a = self.Arange[0] * np.ones(self.sampling)
+            
+        
+    def step_validity(self):
+        self.curr_q = [Hrange[0]] + Hstep + [Hrange[1]]
+        self.curr_a = [Arange[0]] + Astep + [Arange[1]]
+            
     def duration_check(self):
         if self.mode == 0:
-            if self.intv is None or (type(self.intv) is int and  self.intv < 3):
-                self.interval = 3 * np.ones(sampling)
+            if self.intv is None or (type(self.intv) is int and self.intv < 3):
+                self.interval = 3 * np.ones(self.sampling)
             elif type(self.intv) is list and len(self.intv) != len(self.curr_a):
-                self.error_message=f'Number of data in duration does not meet the number of data to be scanned.'
+                raise ValueError(f'Number of data in duration does not meet the number of data to be scanned.')
                 return False
             elif type(self.intv) is list and len(self.intv) == len(self.curr_a):
                 for i in range(len(self.intv)):
@@ -78,10 +98,10 @@ class DC_Scan:
                         self.intv[i] = 3
                 self.interval = self.intv
         elif self.mode == 1:
-            if self.intv is None or (type(self.intv) is int and  self.intv < 30):
+            if self.intv is None or (type(self.intv) is int and self.intv < 30):
                 self.interval = 30 * np.ones(sampling)
             elif type(self.intv) is list and len(self.intv) != len(self.curr_a):
-                self.error_message=f'Number of data in duration does not meet the number of data to be scanned.'
+                raise ValueError(f'Number of data in duration does not meet the number of data to be scanned.')
                 return False
             elif type(self.intv) is list and len(self.intv) == len(self.curr_a):
                 for i in range(len(self.intv)):
@@ -94,29 +114,43 @@ class DC_Scan:
         self.RF.reset()
         self.RF.ChannelOff(self.Achannel)
         self.DC.query(CMD="SET", PAR="VSET", CH=Hchannel[-1], VAL=0)
-        self.DC.query(CMD="SET", PAR="ISET", CH=Hchannel[-1], VAL=0)
+        self.DC.query(CMD="SET", PAR="ISET", CH=Hchannel1[-1], VAL=0)
         time.sleep(0.5)
         self.DC.query(CMD="SET", PAR="OFF", CH=Hchannel[-1])
         
     def RF_set(self, VAL):
         self.RF.set_dc_fix_value(voltage = VAL, current=200, channel=self.Achannel)
         
-    def DC_set(self, VAL):
-        
-        self.DC.query(CMD="SET", PAR="VSET", CH=self.Hchannel[-1], VAL=VAL)
-
+    def DC_set(self, VAL, Hchannel):
+        self.DC.query(CMD="SET", PAR="VSET", CH=Hchannel[-1], VAL=VAL)
+    
+    def RF_channel(self, state="OFF"):
+        if state == "ON":
+            self.RF.ChannelOn(self.Achannel)
+        else:
+            self.RF.ChannelOff(self.Achannel)
+    
+    def DC_channel(self, Channel, state="OFF"):
+        if state == "ON":
+            self.DC.query(CMD="SET", PAR="ON", CH=Channel[-1])
+        else:
+            self.DC.query(CMD="SET", PAR="OFF", CH=Channel[-1])
+            
+    #def
+    '''
     def DC_scan(self, Arange: list, Hrange: list, Astep=None, Hstep=None, intv=None, samp=None, Achannel:str = None, Hchannel:str = None):
-            '''
-            Input
-            Arange    param: Org and Dest of RF, a list
-            Hrange    param: Org and Dest for H, a list
-            Astep     param: a list of specified value (Not include org and dest, order insensitive) or just a constant
-            Hstep     param: a list of specified value (Not include org and dest, order insensitive) or just a constant
-            intv      param: time constant, integer or list of integers
-            samp      param: # of data points, when step of each one is specified,
-            Achannel  param: device channel
-            Hchannel  param: device channel
-            '''
+    
+    
+            #Input
+            #Arange    param: Org and Dest of RF, a list
+            #Hrange    param: Org and Dest for H, a list
+            #Astep     param: a list of specified value (Not include org and dest, order insensitive) or just a constant
+            #Hstep     param: a list of specified value (Not include org and dest, order insensitive) or just a constant
+            #intv      param: time constant, integer or list of integers
+            #samp      param: # of data points, when step of each one is specified,
+            #Achannel  param: device channel
+            #Hchannel  param: device channel
+            
             
             # Check Valid Input Working Mode
             self.working_message = "Working Mode Checking..."
@@ -169,4 +203,4 @@ class DC_Scan:
             self.RF.ChannelOff(channel=Achannel)
             self.RF.reset()
             self.complete = True
-
+     '''
