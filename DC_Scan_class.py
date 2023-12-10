@@ -20,7 +20,7 @@ from matplotlib import pyplot as plt
 # Constrain RF data in the range between 0-6 V
 class DC_Scan:
     def __init__(self,ser,Rigol_address="USB0::0x1AB1::0x0E11::DP8B242401816::INSTR",Hrange=None,Arange=None,Achannel=None,Hchannel=None, Hchannel1=None, sampling=None, Astep=None, Hstep=None, intv=None, mode=None):
-        #self.RF = Rigol_DCPort(Rigol_address)
+        self.RF = Rigol_DCPort(Rigol_address)
         #self.DC = CAENDesktopHighVoltagePowerSupply(ser)
         self.Hrange=Hrange
         self.Arange=Arange
@@ -119,7 +119,7 @@ class DC_Scan:
         self.DC.query(CMD="SET", PAR="OFF", CH=Hchannel[-1])
         
     def RF_set(self, VAL):
-        self.RF.set_dc_fix_value(voltage = VAL, current=200, channel=self.Achannel)
+        self.RF.set_dc_fix_value(voltage = VAL, current=1, channel=self.Achannel)
         
     def DC_set(self, VAL, Hchannel):
         self.DC.query(CMD="SET", PAR="VSET", CH=Hchannel[-1], VAL=VAL)
